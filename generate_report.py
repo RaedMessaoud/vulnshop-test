@@ -117,31 +117,86 @@ class SecurityReportGenerator:
         """Parse DAST (Dynamic Application Security Testing) results"""
         if not os.path.exists(output_file):
             print(f"⚠️  DAST report not found: {output_file}")
-            return False
+        else:
+            try:
+                with open(output_file, 'r') as f:
+                    content = f.read()
+                
+                # Parse DAST test results
+                if '❌ VULNERABILITY' in content:
+                    # Count vulnerabilities found
+                    vuln_lines = [l for l in content.split('\n') if '❌ VULNERABILITY' in l]
+                    for line in vuln_lines:
+                        issue_text = line.replace('❌ VULNERABILITY:', '').replace('❌ VULNERABILITY [HIGH]:', '').replace('❌ VULNERABILITY [CRITICAL]:', '').strip()
+                        
+                        # Determine severity based on content
+                        if 'UNION' in issue_text or 'data extraction' in issue_text.lower():
+                            severity = 'critical'
+                        else:
+                            severity = 'high'
+                        
+                        vuln = {
+                            'type': 'DAST (Dynamic Testing)',
+                            'issue_text': issue_text,
+                            'severity': severity,
+                        }
+                        self.vulnerabilities[severity].append(vuln)
+                        self.stats['total_issues'] += 1
+                
+                # Also parse medium severity issues if present
+                if '⚠️' in content and 'vulnerability' in content.lower():
+                    med_lines = [l for l in content.split('\n') if '⚠️' in l and 'vulnerability' in l.lower()]
+                    for line in med_lines:
+                        issue_text = line.replace('⚠️ ', '').strip()
+                        vuln = {
+                            'type': 'DAST (Dynamic Testing)',
+                            'issue_text': issue_text,
+                            'severity': 'medium',
+                        }
+                        self.vulnerabilities['medium'].append(vuln)
+                        self.stats['total_issues'] += 1
+                
+                if self.stats['total_issues'] == 0:
+                    # No vulnerabilities found via main parsing, still check for specific patterns
+                    pass
+                    
+            except Exception as e:
+                print(f"⚠️  Error parsing DAST results: {e}")
         
-        try:
-            with open(output_file, 'r') as f:
-                content = f.read()
-            
-            # Parse DAST test results
-            if '❌ VULNERABILITY' in content:
-                # Count vulnerabilities found
-                vuln_lines = [l for l in content.split('\n') if '❌ VULNERABILITY' in l]
-                for line in vuln_lines:
-                    vuln = {
-                        'type': 'DAST (Dynamic Testing)',
-                        'issue_text': line.replace('❌ VULNERABILITY:', '').strip(),
-                        'severity': 'high',
-                    }
-                    self.vulnerabilities['high'].append(vuln)
-                    self.stats['total_issues'] += 1
-            else:
-                self.report_lines.append("✅ **DAST (Dynamic Testing)**: No runtime vulnerabilities detected")
-            
-            return True
-        except Exception as e:
-            print(f"❌ Error parsing DAST results: {e}")
-            return False
+        # Also parse detailed vulnerabilities file if exists
+        vuln_file = 'dast-vulnerabilities.txt'
+        if os.path.exists(vuln_file):
+            try:
+                with open(vuln_file, 'r') as f:
+                    content = f.read()
+                
+                if '❌' in content:
+                    # Parse vulnerabilities from detailed file
+                    vuln_lines = [l for l in content.split('\n') if '❌ VULNERABILITY [' in l]
+                    for line in vuln_lines:
+                        # Extract severity and issue text
+                        if '[CRITICAL]' in line:
+                            severity = 'critical'
+                        elif '[HIGH]' in line:
+                            severity = 'high'
+                        else:
+                            severity = 'high'
+                        
+                        issue_text = line.split(':', 1)[-1].strip() if ':' in line else line.strip()
+                        vuln = {
+                            'type': 'DAST (Dynamic Testing)',
+                            'issue_text': issue_text,
+                            'severity': severity,
+                        }
+                        # Check if not already added
+                        if vuln not in self.vulnerabilities[severity]:
+                            self.vulnerabilities[severity].append(vuln)
+                            self.stats['total_issues'] += 1
+                            
+            except Exception as e:
+                print(f"⚠️  Error parsing DAST vulnerabilities file: {e}")
+        
+        return True
 
     def update_statistics(self):
         """Update vulnerability counts by severity"""

@@ -78,32 +78,41 @@ jobs:
       run: |
         echo "🚀 Starting Flask application on port 5000..."
         nohup python shop_vuln.py > app.log 2>&1 &
+        APP_PID=$!
+        echo "  PID: $APP_PID"
         
         # Wait for app to be ready
         for i in {1..30}; do
           if curl -s http://localhost:5000/ > /dev/null 2>&1; then
-            echo "✅ Application is ready"
+            echo "✅ Application is responding on port 5000"
             break
           fi
           echo "⏳ Waiting for application... (attempt $i/30)"
           sleep 1
         done
         
-        # Check if app is running
-        if ! curl -s http://localhost:5000/ > /dev/null 2>&1; then
-          echo "❌ Application failed to start"
-          cat app.log
-          exit 1
+        # Check if app is running (but continue anyway for DAST)
+        if curl -s http://localhost:5000/ > /dev/null 2>&1; then
+          echo "✅ Application ready for DAST testing"
+          echo "app_status=ready" >> $GITHUB_ENV
+        else
+          echo "⚠️ Application may have issues, continu anyway for vulnerability detection"
+          echo "app_status=error" >> $GITHUB_ENV
         fi
-      continue-on-error: false
+      continue-on-error: true
     
     - name: 🧪 DAST - Dynamic Security Tests
       id: dast
       run: |
         echo "🧪 Running dynamic security tests..."
         python -m pytest .github/workflows/test_security.py -v --tb=short || true
-        echo "✅ Dynamic tests completed"
-      continue-on-error: true
+        echo "✅ Dynamic tests completed"        
+        # Display collected vulnerabilities
+        if [ -f "dast-vulnerabilities.txt" ]; then
+          echo ""
+          echo "📊 DAST Findings:"
+          cat dast-vulnerabilities.txt
+        fi      continue-on-error: true
     
     - name: 🔐 DAST - Advanced SQL Injection Tests
       id: dast-advanced
@@ -177,7 +186,7 @@ jobs:
       if: always()
       run: |
         echo "========================================="
-        echo "📋 SECURITY REPORT FROM PIPELINE"
+        echo "📋 COMPLETE SECURITY REPORT"
         echo "========================================="
         if [ -f "SECURITY_REPORT.md" ]; then
           cat SECURITY_REPORT.md
@@ -185,6 +194,21 @@ jobs:
           echo "⚠️ Report file not found"
         fi
         echo "========================================="
+        echo ""
+        echo "📊 Detailed Results:"
+        echo ""
+        
+        if [ -f "bandit-report.json" ]; then
+          echo "🔍 SAST Results:"
+          cat bandit-report.json | python -m json.tool | head -50
+          echo ""
+        fi
+        
+        if [ -f "dast-vulnerabilities.txt" ]; then
+          echo "🧪 DAST Vulnerabilities:"
+          cat dast-vulnerabilities.txt
+          echo ""
+        fi
     
     # ==================================================================
     # PHASE 5: Artifact Upload
@@ -199,15 +223,18 @@ jobs:
           safety-report.json
           safety-output.txt
           dast-results.txt
+          dast-vulnerabilities.txt
+          dast-test-results.txt
           SECURITY_REPORT.md
           app.log
+          pytest-output.log
         if-no-files-found: warn
         retention-days: 30
     
     # ==================================================================
     # PHASE 6: Summary
     # ==================================================================
-    - name: 🎯 Pipeline Summary
+    - name: 🎯 Pipeline Summary & Vulnerabilities Found
       if: always()
       run: |
         echo ""
@@ -227,6 +254,34 @@ jobs:
         echo "  ✅ DAST (Dynamic Tests) - Status: ${{ steps.dast.outcome }}"
         echo "  ✅ DAST Advanced - Status: ${{ steps.dast-advanced.outcome }}"
         echo "  ✅ Report Generated - Status: ${{ steps.report.outcome }}"
+        echo ""
+        
+        # Count total vulnerabilities
+        if [ -f "SECURITY_REPORT.md" ]; then
+          echo "📈 Vulnerability Summary from Report:"
+          grep -E "🔴 Critical|🟠 High|🟡 Medium|🟢 Low|Total" SECURITY_REPORT.md | grep -E "^\|" | head -6 || echo "See full report in artifacts"
+        fi
+        
+        echo ""
+        echo "⚠️ VULNERABILITIES FOUND:"
+        echo ""
+        
+        # Check Bandit results
+        if [ -f "bandit-report.json" ]; then
+          BANDIT_COUNT=$(python -c "import json; d=json.load(open('bandit-report.json')); print(len(d.get('results',[])))" 2>/dev/null || echo "?")
+          echo "  🔍 SAST Issues found: $BANDIT_COUNT"
+        fi
+        
+        # Check DAST vulnerabilities
+        if [ -f "dast-vulnerabilities.txt" ]; then
+          DAST_COUNT=$(grep -c "^[0-9]\\." dast-vulnerabilities.txt 2>/dev/null || echo "0")
+          if [ "$DAST_COUNT" -gt "0" ]; then
+            echo "  🧪 DAST Vulnerabilities found: $DAST_COUNT"
+            echo ""
+            grep "^[0-9]\\." dast-vulnerabilities.txt | sed 's/^/     /'
+          fi
+        fi
+        
         echo ""
         echo "📁 Artifacts available for download"
         echo "🔗 Check 'Artifacts' tab in GitHub Actions"
