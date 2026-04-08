@@ -10,15 +10,6 @@ on:
     branches: 
       - main
   workflow_dispatch:
-    inputs:
-      docker_username:
-        description: 'Docker Username (optional - for testing)'
-        required: false
-        default: ''
-      docker_password:
-        description: 'Docker Password/Token (optional - for testing)'
-        required: false
-        default: ''
 
 env:
   PYTHON_VERSION: '3.11'
@@ -235,28 +226,12 @@ jobs:
     name: 🐳 Build Docker Image
     runs-on: ubuntu-latest
     needs: security-scan
-    if: needs.security-scan.result == 'success' && (github.event.inputs.docker_username != '' || secrets.DOCKER_USERNAME != '')
+    if: needs.security-scan.result == 'success'   
     timeout-minutes: 10
     
     steps:
     - name: 📥 Checkout code
       uses: actions/checkout@v4
-    
-    - name: ✅ Verify Docker Credentials
-      run: |
-        # Check if using workflow inputs (manual trigger) or secrets
-        USERNAME="${{ github.event.inputs.docker_username || secrets.DOCKER_USERNAME }}"
-        PASSWORD="${{ github.event.inputs.docker_password || secrets.DOCKER_PASSWORD }}"
-        
-        if [ -z "$USERNAME" ] || [ -z "$PASSWORD" ]; then
-          echo "⚠️ Docker credentials not found"
-          echo "Usage:"
-          echo "  Option 1: Go to GitHub Settings → Secrets → Add DOCKER_USERNAME & DOCKER_PASSWORD"
-          echo "  Option 2: Go to Actions → Run workflow → Fill in the inputs"
-          exit 1
-        fi
-        echo "✅ Docker credentials found"
-      continue-on-error: true
     
     - name: 🐳 Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -264,34 +239,29 @@ jobs:
     - name: 🔑 Login to Docker Hub
       uses: docker/login-action@v3
       with:
-        username: ${{ github.event.inputs.docker_username || secrets.DOCKER_USERNAME }}
-        password: ${{ github.event.inputs.docker_password || secrets.DOCKER_PASSWORD }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
     
     - name: 📦 Build and Push Docker Image
       uses: docker/build-push-action@v5
       with:
         context: .
-        push: ${{ github.event.inputs.docker_username != '' || secrets.DOCKER_USERNAME != '' }}
+        push: true
         tags: |
-          ${{ github.event.inputs.docker_username || secrets.DOCKER_USERNAME }}/vulnshop:latest
-          ${{ github.event.inputs.docker_username || secrets.DOCKER_USERNAME }}/vulnshop:${{ github.sha }}
+          ${{ secrets.DOCKER_USERNAME }}/vulnshop:latest
+          ${{ secrets.DOCKER_USERNAME }}/vulnshop:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-      continue-on-error: true
     
-    - name: 📋 Build Status
+    - name: ✅ Build Success
       run: |
         echo "========================================="
-        echo "🐳 DOCKER BUILD COMPLETED"
+        echo "✅ DOCKER BUILD & PUSH COMPLETED"
         echo "========================================="
-        USERNAME="${{ github.event.inputs.docker_username || secrets.DOCKER_USERNAME }}"
-        if [ ! -z "$USERNAME" ]; then
-          echo "✅ Status: Image built and pushed"
-          echo "📍 Repository: $USERNAME/vulnshop"
-          echo "🏷️  Tags:"
-          echo "   - latest"
-          echo "   - ${{ github.sha }}"
-        else
-          echo "⚠️ Status: Build completed (no credentials, image not pushed)"
-        fi
+        echo "📍 Repository: ${{ secrets.DOCKER_USERNAME }}/vulnshop"
+        echo "🏷️  Tags:"
+        echo "   - latest"
+        echo "   - ${{ github.sha }}"
+        echo "🔗 View on Docker Hub:"
+        echo "   https://hub.docker.com/r/${{ secrets.DOCKER_USERNAME }}/vulnshop"
         echo "========================================="
