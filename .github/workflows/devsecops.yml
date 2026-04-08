@@ -235,7 +235,7 @@ jobs:
     name: 🐳 Build Docker Image
     runs-on: ubuntu-latest
     needs: security-scan
-    if: needs.security-scan.result == 'success'
+    if: needs.security-scan.result == 'success' && (github.event.inputs.docker_username != '' || secrets.DOCKER_USERNAME != '')
     timeout-minutes: 10
     
     steps:
