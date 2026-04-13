@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  vulnshop:
+    build: .
+    container_name: vulnshop-app
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+    volumes:
+      - ./app.log:/app/app.log
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

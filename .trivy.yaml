@@ -1,0 +1,6 @@
+severity:
+  - HIGH
+  - CRITICAL
+skip-update: false
+exit-code: 0
+format: json
